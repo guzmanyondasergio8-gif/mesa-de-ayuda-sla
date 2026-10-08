@@ -1,0 +1,46 @@
+[
+  {
+    "id": 1001,
+    "titulo": "No puedo iniciar sesión",
+    "descripcion": "El usuario no puede ingresar al sistema.",
+    "usuarioId": 3,
+    "categoriaId": 4,
+    "estadoId": 1,
+    "prioridad": "Alta",
+    "fechaCreacion": "2026-10-08T08:00:00",
+    "slaHoras": 4
+  },
+  {
+    "id": 1002,
+    "titulo": "Computador no enciende",
+    "descripcion": "El equipo no responde al presionar el botón de encendido.",
+    "usuarioId": 3,
+    "categoriaId": 1,
+    "estadoId": 2,
+    "prioridad": "Alta",
+    "fechaCreacion": "2026-10-08T07:30:00",
+    "slaHoras": 4
+  },
+  {
+    "id": 1003,
+    "titulo": "Instalación de software",
+    "descripcion": "Se requiere instalar un programa autorizado.",
+    "usuarioId": 3,
+    "categoriaId": 2,
+    "estadoId": 3,
+    "prioridad": "Media",
+    "fechaCreacion": "2026-10-07T14:00:00",
+    "slaHoras": 8
+  },
+  {
+    "id": 1004,
+    "titulo": "Internet lento",
+    "descripcion": "La conexión a Internet presenta baja velocidad.",
+    "usuarioId": 3,
+    "categoriaId": 3,
+    "estadoId": 4,
+    "prioridad": "Media",
+    "fechaCreacion": "2026-10-07T09:00:00",
+    "slaHoras": 8
+  }
+]

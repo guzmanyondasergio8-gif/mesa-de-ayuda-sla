@@ -1,0 +1,18 @@
+[
+  {
+    "id": 1,
+    "nombre": "Hardware"
+  },
+  {
+    "id": 2,
+    "nombre": "Software"
+  },
+  {
+    "id": 3,
+    "nombre": "Redes"
+  },
+  {
+    "id": 4,
+    "nombre": "Accesos"
+  }
+]
