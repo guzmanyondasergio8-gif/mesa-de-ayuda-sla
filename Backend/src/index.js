@@ -24,8 +24,8 @@ async function start() {
       console.log(`Servidor en http://localhost:${PORT}`);
       console.log(`Swagger en  http://localhost:${PORT}/api-docs`);
     });
-  } catch (err) {
-    console.error('Error al iniciar:', err.message);
+  } catch (error) {
+    console.error("Error al iniciar:", error.message || error);
     process.exit(1);
   }
 }
