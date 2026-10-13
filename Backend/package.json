@@ -1,5 +1,5 @@
 {
-  "name": "backweb",
+  "name": "MesaDeAyuda-SLA",
   "version": "1.0.0",
   "description": "API REST con Express, PostgreSQL y Swagger",
   "main": "src/index.js",
