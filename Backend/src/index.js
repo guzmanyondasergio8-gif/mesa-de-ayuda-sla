@@ -3,18 +3,21 @@ const express = require('express');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./config/swagger');
 const runMigrations = require('./config/migrate');
-const userRoutes = require('./routes/user.routes');
+const ticketRoutes = require('./routes/ticket.routes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
+// Documentación de la API
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-app.use('/api/users', userRoutes);
+
+// Rutas del sistema
+app.use('/api/tickets', ticketRoutes);
 
 app.get('/', (req, res) => {
-  res.json({ message: 'API corriendo', docs: '/api-docs' });
+  res.json({ message: 'API de Mesa de Ayuda lista', docs: '/api-docs' });
 });
 
 async function start() {
