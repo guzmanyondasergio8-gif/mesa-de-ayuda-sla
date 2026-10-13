@@ -58,14 +58,37 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import ticketsData from '@/data/tickets.json'
+import { ref, onMounted } from 'vue'
 
-const tickets = ref(ticketsData)
+const tickets = ref([])
+const cargando = ref(true)
 
+// Función para obtener tickets directamente de PostgreSQL
+const obtenerTickets = async () => {
+  try {
+    const res = await fetch('http://localhost:4000/api/tickets')
+    const data = await res.json()
+    tickets.value = data
+  } catch (error) {
+    console.error('Error al conectar con el backend:', error)
+  } finally {
+    cargando.value = false;
+  }
+}
+
+// Lógica para determinar el estado del SLA según los datos del Backend
 function getSlaState(ticket) {
   if (ticket.slaState) return ticket.slaState 
 
+  // Si la API devuelve los minutos del SLA
+  if (ticket.tiempo_limite_resolucion !== undefined) {
+    const minutosRestantes = ticket.tiempo_limite_resolucion - (ticket.tiempo_transcurrido_minutos || 0)
+    if (minutosRestantes <= 0) return 'vencido'
+    if (minutosRestantes <= 30) return 'por_vencer'
+    return 'en_tiempo'
+  }
+
+  // Compatibilidad por si el ticket viene con horasRestantes
   const horasRestantes = ticket.horasRestantes
   if (horasRestantes !== undefined) {
     if (horasRestantes <= 0) return 'vencido'
@@ -95,6 +118,10 @@ function getSlaText(ticket) {
 function countBySla(state) {
   return tickets.value.filter(t => getSlaState(t) === state).length
 }
+
+onMounted(() => {
+  obtenerTickets()
+})
 </script>
 
 <style scoped>
