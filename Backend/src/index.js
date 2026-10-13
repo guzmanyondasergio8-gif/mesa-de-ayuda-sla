@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const cors = require('cors'); // <-- 1. Importar cors
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./config/swagger');
 const runMigrations = require('./config/migrate');
@@ -8,6 +9,7 @@ const ticketRoutes = require('./routes/ticket.routes');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.use(cors()); // <-- 2. Permitir peticiones desde el Frontend
 app.use(express.json());
 
 // Documentación de la API

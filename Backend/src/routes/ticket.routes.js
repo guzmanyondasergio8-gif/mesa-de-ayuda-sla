@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getTickets, createTicket } = require('../controllers/ticket.controller');
+const { getTickets, createTicket, updateTicketStatus } = require('../controllers/ticket.controller');
 
 /**
  * @openapi
@@ -38,5 +38,34 @@ const { getTickets, createTicket } = require('../controllers/ticket.controller')
  */
 router.get('/', getTickets);
 router.post('/', createTicket);
+
+/**
+ * @openapi
+ * /api/tickets/{id}:
+ *   put:
+ *     summary: Actualizar el estado o pausar/reanudar un ticket
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               estado:
+ *                 type: string
+ *                 example: En Espera
+ *               en_espera:
+ *                 type: boolean
+ *                 example: true
+ *     responses:
+ *       200:
+ *         description: Ticket actualizado exitosamente.
+ */
+router.put('/:id', updateTicketStatus);
 
 module.exports = router;

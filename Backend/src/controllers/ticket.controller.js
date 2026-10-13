@@ -20,7 +20,7 @@ const getTickets = async (req, res) => {
   }
 };
 
-// 2. Crear un nuevo ticket con calculo inicial de SLA
+// 2. Crear un nuevo ticket con cálculo inicial de SLA
 const createTicket = async (req, res) => {
   const { titulo, descripcion, prioridad, agente_id } = req.body;
 
@@ -46,7 +46,36 @@ const createTicket = async (req, res) => {
   }
 };
 
+// 3. Actualizar estado del ticket (Abierto, En Espera, Resuelto, Cerrado)
+const updateTicketStatus = async (req, res) => {
+  const { id } = req.params;
+  const { estado, en_espera } = req.body;
+
+  try {
+    const result = await pool.query(
+      `UPDATE tickets 
+       SET estado = COALESCE($1, estado),
+           en_espera = COALESCE($2, en_espera),
+           fecha_actualizacion = NOW()
+       WHERE id = $3 RETURNING *`,
+      [estado, en_espera, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Ticket no encontrado' });
+    }
+
+    res.json({
+      mensaje: 'Estado del ticket actualizado',
+      ticket: result.rows[0]
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 module.exports = {
   getTickets,
-  createTicket
+  createTicket,
+  updateTicketStatus
 };
