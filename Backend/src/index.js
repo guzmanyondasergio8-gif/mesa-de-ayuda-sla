@@ -5,6 +5,8 @@ const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./config/swagger');
 const runMigrations = require('./config/migrate');
 const ticketRoutes = require('./routes/ticket.routes');
+const catalogoRoutes = require('./routes/catalogo.routes');
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -17,6 +19,7 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Rutas del sistema
 app.use('/api/tickets', ticketRoutes);
+app.use('/api/catalogos', catalogoRoutes);
 
 app.get('/', (req, res) => {
   res.json({ message: 'API de Mesa de Ayuda lista', docs: '/api-docs' });
