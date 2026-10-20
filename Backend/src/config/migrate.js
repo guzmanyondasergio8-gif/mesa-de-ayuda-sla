@@ -29,6 +29,15 @@ async function runMigrations() {
             );
         `);
 
+// 2.1 Columnas para pausar el reloj del SLA y registrar la resolución
+        //     (ADD COLUMN IF NOT EXISTS no afecta bases que ya las tengan)
+        await pool.query(`
+            ALTER TABLE tickets
+                ADD COLUMN IF NOT EXISTS pausado_desde TIMESTAMP NULL,
+                ADD COLUMN IF NOT EXISTS minutos_pausados INT DEFAULT 0,
+                ADD COLUMN IF NOT EXISTS fecha_resolucion TIMESTAMP NULL;
+        `);
+
         // 3. Tabla para el historial de escalados
         await pool.query(`
             CREATE TABLE IF NOT EXISTS historial_escalados (
