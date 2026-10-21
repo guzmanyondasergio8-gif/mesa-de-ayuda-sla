@@ -1,11 +1,17 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import DashboardView from '@/views/DashboardView.vue'
+import NuevoTicketView from '@/views/NuevoTicketView.vue'
 
 const routes = [
   {
     path: '/',
     name: 'dashboard',
     component: DashboardView
+  },
+  {
+    path: '/tickets/nuevo',
+    name: 'nuevo-ticket',
+    component: NuevoTicketView
   }
 ]
 

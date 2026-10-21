@@ -5,6 +5,9 @@
       <p>Gestión y monitoreo de tickets de soporte</p>
     </header>
 
+    <p v-if="cargando" class="mensaje-cargando">Cargando...</p>
+    <p v-if="error" class="mensaje-error">{{ error }}</p>
+
     <div class="metrics-summary">
       <div class="metric-card">
         <span class="metric-value">{{ tickets.length }}</span>
@@ -25,11 +28,11 @@
     </div>
 
     <div class="tickets-grid">
-      <div 
-        v-for="ticket in tickets" 
-        :key="ticket.id" 
+      <div
+        v-for="ticket in tickets"
+        :key="ticket.id"
         class="ticket-card"
-        :class="getSlaClass(ticket)"
+        :class="[getSlaClass(ticket), { finalizado: esFinalizado(ticket) }]"
       >
         <div class="ticket-header">
           <span class="ticket-id">#{{ ticket.id }}</span>
@@ -40,6 +43,11 @@
 
         <h3 class="ticket-title">{{ ticket.titulo || ticket.asunto }}</h3>
         <p class="ticket-description">{{ ticket.descripcion }}</p>
+
+        <p class="ticket-tiempo">
+          {{ textoTiempo(ticket.minutos_restantes) }}
+          <span v-if="ticket.en_espera" class="etiqueta-pausa">En pausa</span>
+        </p>
 
         <div class="ticket-meta">
           <span class="meta-item">
@@ -52,51 +60,70 @@
             <strong>Estado:</strong> {{ ticket.estado }}
           </span>
         </div>
+
+        <div v-if="!esFinalizado(ticket)" class="ticket-actions">
+          <button
+            v-if="!ticket.en_espera"
+            @click="cambiarEstado(ticket.id, 'En Espera')"
+          >
+            Pausar
+          </button>
+          <button
+            v-else
+            @click="cambiarEstado(ticket.id, 'En Progreso')"
+          >
+            Reanudar
+          </button>
+          <button
+            class="btn-resolver"
+            @click="cambiarEstado(ticket.id, 'Resuelto')"
+          >
+            Resolver
+          </button>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
+import { obtenerTickets, actualizarEstado } from '@/services/api'
 
 const tickets = ref([])
 const cargando = ref(true)
+const error = ref('')
+let intervalo = null
 
-// Función para obtener tickets directamente de PostgreSQL
-const obtenerTickets = async () => {
+async function cargarTickets() {
   try {
-    const res = await fetch('http://localhost:4000/api/tickets')
-    const data = await res.json()
-    tickets.value = data
-  } catch (error) {
-    console.error('Error al conectar con el backend:', error)
+    tickets.value = await obtenerTickets()
+    error.value = ''
+  } catch (e) {
+    error.value = e.message
   } finally {
-    cargando.value = false;
+    cargando.value = false
   }
 }
 
-// Lógica para determinar el estado del SLA según los datos del Backend
+onMounted(() => {
+  cargarTickets()
+  intervalo = setInterval(cargarTickets, 30000)
+})
+
+onUnmounted(() => clearInterval(intervalo))
+
+async function cambiarEstado(id, estado) {
+  try {
+    await actualizarEstado(id, estado)
+    await cargarTickets()
+  } catch (e) {
+    error.value = e.message
+  }
+}
+
 function getSlaState(ticket) {
-  if (ticket.slaState) return ticket.slaState 
-
-  // Si la API devuelve los minutos del SLA
-  if (ticket.tiempo_limite_resolucion !== undefined) {
-    const minutosRestantes = ticket.tiempo_limite_resolucion - (ticket.tiempo_transcurrido_minutos || 0)
-    if (minutosRestantes <= 0) return 'vencido'
-    if (minutosRestantes <= 30) return 'por_vencer'
-    return 'en_tiempo'
-  }
-
-  // Compatibilidad por si el ticket viene con horasRestantes
-  const horasRestantes = ticket.horasRestantes
-  if (horasRestantes !== undefined) {
-    if (horasRestantes <= 0) return 'vencido'
-    if (horasRestantes <= 4) return 'por_vencer'
-    return 'en_tiempo'
-  }
-
-  return 'en_tiempo'
+  return ticket.estado_sla
 }
 
 function getSlaClass(ticket) {
@@ -119,9 +146,17 @@ function countBySla(state) {
   return tickets.value.filter(t => getSlaState(t) === state).length
 }
 
-onMounted(() => {
-  obtenerTickets()
-})
+function textoTiempo(minutos) {
+  const abs = Math.abs(minutos)
+  const h = Math.floor(abs / 60)
+  const m = abs % 60
+  const texto = h > 0 ? `${h}h ${m}min` : `${m}min`
+  return minutos < 0 ? `Vencido hace ${texto}` : `Quedan ${texto}`
+}
+
+function esFinalizado(ticket) {
+  return ['Resuelto', 'Cerrado'].includes(ticket.estado)
+}
 </script>
 
 <style scoped>
@@ -146,6 +181,16 @@ onMounted(() => {
 .dashboard-header p {
   color: #64748b;
   margin-top: 0.25rem;
+}
+
+.mensaje-cargando {
+  color: #64748b;
+  margin-bottom: 1rem;
+}
+
+.mensaje-error {
+  color: #dc2626;
+  margin-bottom: 1rem;
 }
 
 .metrics-summary {
@@ -231,6 +276,13 @@ onMounted(() => {
 .ticket-card.por_vencer { border-top: 4px solid #f59e0b; }
 .ticket-card.en_tiempo { border-top: 4px solid #10b981; }
 
+/* Debe ir después de las reglas de color de arriba para ganar por orden */
+.ticket-card.finalizado {
+  background: #f1f5f9;
+  border-top-color: #94a3b8;
+  opacity: 0.6;
+}
+
 .ticket-title {
   margin: 0 0 0.5rem 0;
   font-size: 1.1rem;
@@ -244,6 +296,23 @@ onMounted(() => {
   flex-grow: 1;
 }
 
+.ticket-tiempo {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #334155;
+  margin: 0 0 1rem 0;
+}
+
+.etiqueta-pausa {
+  margin-left: 0.5rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 20px;
+  background: #e0e7ff;
+  color: #3730a3;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
 .ticket-meta {
   border-top: 1px solid #f1f5f9;
   padding-top: 0.75rem;
@@ -252,5 +321,30 @@ onMounted(() => {
   gap: 0.25rem;
   font-size: 0.8rem;
   color: #64748b;
+}
+
+.ticket-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.ticket-actions button {
+  flex: 1;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.ticket-actions button:hover {
+  background: #f1f5f9;
+}
+
+.btn-resolver {
+  border-color: #10b981;
+  color: #065f46;
 }
 </style>
