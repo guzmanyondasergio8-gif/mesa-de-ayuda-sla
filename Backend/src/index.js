@@ -7,6 +7,7 @@ const runMigrations = require('./config/migrate');
 const ticketRoutes = require('./routes/ticket.routes');
 const catalogoRoutes = require('./routes/catalogo.routes');
 const agenteRoutes = require('./routes/agente.routes');
+const authRoutes = require('./routes/auth.routes');
 
 
 const app = express();
@@ -22,12 +23,18 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use('/api/tickets', ticketRoutes);
 app.use('/api/catalogos', catalogoRoutes);
 app.use('/api/agentes', agenteRoutes);
+app.use('/api/auth', authRoutes);
 
 app.get('/', (req, res) => {
   res.json({ message: 'API de Mesa de Ayuda lista', docs: '/api-docs' });
 });
 
 async function start() {
+  if (!process.env.JWT_SECRET) {
+    console.error('Falta JWT_SECRET en el archivo .env (necesario para el login).');
+    process.exit(1);
+  }
+
   try {
     await runMigrations();
     app.listen(PORT, () => {

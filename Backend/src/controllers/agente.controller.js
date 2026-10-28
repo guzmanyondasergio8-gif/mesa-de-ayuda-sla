@@ -1,7 +1,9 @@
+const bcrypt = require('bcryptjs');
 const pool = require('../config/db');
 
 const ROLES = ['Agente', 'Administrador'];
 const REGEX_CORREO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PASSWORD_MIN = 6;
 
 // 1. Listar todos los agentes
 const getAgentes = async (req, res) => {
@@ -40,10 +42,14 @@ const getAgenteById = async (req, res) => {
 
 // 3. Crear un agente
 const createAgente = async (req, res) => {
-  const { nombre, correo, rol } = req.body;
+  const { nombre, correo, rol, password } = req.body;
 
-  if (!nombre || !correo) {
-    return res.status(400).json({ error: 'Nombre y correo son obligatorios.' });
+  if (!nombre || !correo || !password) {
+    return res.status(400).json({ error: 'Nombre, correo y contraseña son obligatorios.' });
+  }
+
+  if (String(password).length < PASSWORD_MIN) {
+    return res.status(400).json({ error: `La contraseña debe tener al menos ${PASSWORD_MIN} caracteres.` });
   }
 
   if (!REGEX_CORREO.test(correo)) {
@@ -56,11 +62,14 @@ const createAgente = async (req, res) => {
   }
 
   try {
+    // La contraseña nunca se guarda en texto plano, solo su hash
+    const passwordHash = await bcrypt.hash(String(password), 10);
+
     const result = await pool.query(
-      `INSERT INTO agentes (nombre, correo, rol)
-       VALUES ($1, $2, $3)
+      `INSERT INTO agentes (nombre, correo, rol, password_hash)
+       VALUES ($1, $2, $3, $4)
        RETURNING id, nombre, correo, rol`,
-      [nombre.trim(), correo.trim().toLowerCase(), rolFinal]
+      [nombre.trim(), correo.trim().toLowerCase(), rolFinal, passwordHash]
     );
 
     res.status(201).json({
