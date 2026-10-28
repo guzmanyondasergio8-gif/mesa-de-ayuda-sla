@@ -11,7 +11,7 @@ import ticketsMock from '@/data/mock/tickets.json'
 import agentesMock from '@/data/mock/agentes.json'
 import catalogosMock from '@/data/mock/catalogos.json'
 
-const USAR_MOCK = true
+const USAR_MOCK = false
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
 
 // ---------------------------------------------------------------------------
