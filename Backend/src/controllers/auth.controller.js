@@ -1,6 +1,6 @@
 const bcrypt = require('bcryptjs');
 const pool = require('../config/db');
-const { crearSesion } = require('../services/auth.service');
+const { crearSesion, renovarSesion, revocarRefreshToken } = require('../services/auth.service');
 
 // Mismo mensaje para correo inexistente o contraseña incorrecta,
 // así no se revela qué correos están registrados
@@ -37,4 +37,23 @@ const login = async (req, res) => {
   }
 };
 
-module.exports = { login };
+// POST /api/auth/refresh — cambia el refresh token por una sesión nueva
+const refresh = async (req, res) => {
+  try {
+    res.json(await renovarSesion(req.body.refresh_token));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
+};
+
+// POST /api/auth/logout — revoca el refresh token para que no se pueda volver a usar
+const logout = async (req, res) => {
+  try {
+    await revocarRefreshToken(req.body.refresh_token);
+    res.json({ mensaje: 'Sesión cerrada' });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
+};
+
+module.exports = { login, refresh, logout };

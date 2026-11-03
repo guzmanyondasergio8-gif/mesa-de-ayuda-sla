@@ -57,9 +57,95 @@ async function crearSesion(agente) {
   };
 }
 
+// Error con código HTTP, para que el controlador sepa qué responder
+class ErrorSesion extends Error {
+  constructor(mensaje, status = 401) {
+    super(mensaje);
+    this.status = status;
+  }
+}
+
+// Cambia un refresh token válido por una sesión nueva (rotación):
+//  - El token usado se revoca, así cada refresh token sirve UNA sola vez.
+//  - Si llega un token ya revocado, alguien pudo haberlo copiado: por seguridad
+//    se revocan todas las sesiones de ese agente y debe volver a iniciar sesión.
+async function renovarSesion(refreshToken) {
+  if (!refreshToken) {
+    throw new ErrorSesion('El refresh_token es obligatorio.', 400);
+  }
+
+  let agente;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // FOR UPDATE: si llegan dos renovaciones con el mismo token a la vez, solo una gana
+    const result = await client.query(
+      `SELECT rt.id, rt.agente_id, rt.revocado, rt.expira_en < LOCALTIMESTAMP AS expirado,
+              a.nombre, a.correo, a.rol
+       FROM refresh_tokens rt
+       JOIN agentes a ON a.id = rt.agente_id
+       WHERE rt.token_hash = $1
+       FOR UPDATE OF rt`,
+      [hashToken(String(refreshToken))]
+    );
+    const registro = result.rows[0];
+
+    if (!registro) {
+      throw new ErrorSesion('Refresh token inválido.');
+    }
+
+    if (registro.revocado) {
+      await client.query(
+        'UPDATE refresh_tokens SET revocado = TRUE WHERE agente_id = $1',
+        [registro.agente_id]
+      );
+      await client.query('COMMIT');
+      throw new ErrorSesion('Refresh token ya utilizado. Por seguridad se cerraron todas tus sesiones.');
+    }
+
+    if (registro.expirado) {
+      throw new ErrorSesion('Refresh token expirado. Inicia sesión de nuevo.');
+    }
+
+    await client.query('UPDATE refresh_tokens SET revocado = TRUE WHERE id = $1', [registro.id]);
+    await client.query('COMMIT');
+
+    // Datos actuales del agente (por si le cambiaron el rol desde el último login)
+    agente = {
+      id: registro.agente_id,
+      nombre: registro.nombre,
+      correo: registro.correo,
+      rol: registro.rol
+    };
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  return crearSesion(agente);
+}
+
+// Cerrar sesión: elimina el refresh token, así ya no sirve para renovar.
+// Si no existe, no pasa nada (cerrar sesión dos veces no es un error).
+async function revocarRefreshToken(refreshToken) {
+  if (!refreshToken) {
+    throw new ErrorSesion('El refresh_token es obligatorio.', 400);
+  }
+  await pool.query(
+    'DELETE FROM refresh_tokens WHERE token_hash = $1',
+    [hashToken(String(refreshToken))]
+  );
+}
+
 module.exports = {
+  ErrorSesion,
   hashToken,
   generarAccessToken,
   generarRefreshToken,
-  crearSesion
+  crearSesion,
+  renovarSesion,
+  revocarRefreshToken
 };
