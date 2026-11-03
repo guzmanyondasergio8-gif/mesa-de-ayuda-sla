@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { login, refresh, logout } = require('../controllers/auth.controller');
+const { login, refresh, logout, perfil } = require('../controllers/auth.controller');
+const { verificarToken } = require('../middlewares/auth.middleware');
 
 /**
  * @openapi
@@ -8,6 +9,7 @@ const { login, refresh, logout } = require('../controllers/auth.controller');
  *   post:
  *     summary: Iniciar sesión (devuelve access token y refresh token)
  *     tags: [Autenticación]
+ *     security: []
  *     requestBody:
  *       required: true
  *       content:
@@ -49,6 +51,7 @@ router.post('/login', login);
  *       Cada refresh token sirve una sola vez: al usarlo se revoca y se entrega uno nuevo.
  *       Si se intenta usar uno ya revocado, se cierran todas las sesiones del agente.
  *     tags: [Autenticación]
+ *     security: []
  *     requestBody:
  *       required: true
  *       content:
@@ -76,6 +79,7 @@ router.post('/refresh', refresh);
  *   post:
  *     summary: Cerrar sesión (elimina el refresh token)
  *     tags: [Autenticación]
+ *     security: []
  *     requestBody:
  *       required: true
  *       content:
@@ -94,5 +98,22 @@ router.post('/refresh', refresh);
  *         description: Falta el refresh_token.
  */
 router.post('/logout', logout);
+
+/**
+ * @openapi
+ * /api/auth/perfil:
+ *   get:
+ *     summary: Datos del agente que inició sesión (requiere token)
+ *     tags: [Autenticación]
+ *     responses:
+ *       200:
+ *         description: Datos del agente.
+ *         content:
+ *           application/json:
+ *             example: { id: 1, nombre: Sergio Guzmán, correo: sergio@empresa.com, rol: Administrador }
+ *       401:
+ *         description: Token no enviado, inválido o expirado.
+ */
+router.get('/perfil', verificarToken, perfil);
 
 module.exports = router;

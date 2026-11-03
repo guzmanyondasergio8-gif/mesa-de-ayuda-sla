@@ -56,4 +56,20 @@ const logout = async (req, res) => {
   }
 };
 
-module.exports = { login, refresh, logout };
+// GET /api/auth/perfil — datos del agente dueño del token (ruta protegida)
+const perfil = async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, nombre, correo, rol FROM agentes WHERE id = $1',
+      [req.usuario.id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Agente no encontrado' });
+    }
+    res.json(rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+module.exports = { login, refresh, logout, perfil };
