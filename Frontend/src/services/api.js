@@ -18,11 +18,12 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
 // ---------------------------------------------------------------------------
 // Modo API real
 // ---------------------------------------------------------------------------
-// Hace la petición enviando el access_token en el header Authorization
-async function peticion(ruta, opciones = {}) {
+// Hace la petición enviando el access_token en el header Authorization.
+// Si el token venció (codigo TOKEN_EXPIRADO), lo renueva y repite la petición una vez.
+async function peticion(ruta, opciones = {}, reintentar = true) {
   const auth = useAuthStore()
   const { headers, ...resto } = opciones
-  const res = await fetch(`${API_URL}${ruta}`, {
+fetch(`${API_URL}${ruta}`, {
     ...resto,
     headers: {
       'Content-Type': 'application/json',
@@ -31,12 +32,56 @@ async function peticion(ruta, opciones = {}) {
     }
   })
   const data = await res.json().catch(() => ({}))
+
+  if (res.status === 401) {
+    if (data.codigo === 'TOKEN_EXPIRADO' && reintentar && auth.refreshToken) {
+      try {
+        await renovarToken()
+      } catch (e) {
+        terminarSesion()
+        throw new Error('Tu sesión expiró. Inicia sesión de nuevo.')
+      }
+      return peticion(ruta, opciones, false)
+    }
+    terminarSesion()
+    throw new Error(data.error || 'Debes iniciar sesión.')
+  }
+
   if (!res.ok) {
-    throw new Error(data.error || `Error ${res.status} en la petición`)
+    throw new Error(data.error || `Error ${res.status}" en la petición`)
   }
   return data
 }
- 
+
+// Renueva los tokens con el refresh_token.
+// Si varias peticiones vencen al mismo tiempo, todas esperan el MISMO refresh
+// (el backend toma dos refresh con el mismo token como un robo y cierra la sesión).
+let refrescoEnCurso = null
+
+function renovarToken() {
+  const auth = useAuthStore()
+  if (!refrescoEnCurso) {
+    refrescoEnCurso = peticionPublica(
+      '/auth/refresh',
+      { refresh_token: auth.refreshToken },
+      'No se pudo renovar la sesión.'
+    )
+      .then((data) => auth.guardarSesion(data))
+      .finally(() => {
+        refrescoEnCurso = null
+      })
+  }
+  return refrescoEnCurso
+}
+
+// Borra la sesión y manda al login
+function terminarSesion() {
+  const auth = useAuthStore()
+  auth.cerrarSesion()
+  if (window.location.pathname !== '/login') {
+    window.location.assign('/login')
+  }
+}
 // ---------------------------------------------------------------------------
 // Rutas públicas de autenticación (siempre van a la API real, sin token)
 // ---------------------------------------------------------------------------
