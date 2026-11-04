@@ -7,6 +7,8 @@ const runMigrations = require('./config/migrate');
 const ticketRoutes = require('./routes/ticket.routes');
 const catalogoRoutes = require('./routes/catalogo.routes');
 const agenteRoutes = require('./routes/agente.routes');
+const authRoutes = require('./routes/auth.routes');
+const { verificarToken } = require('./middlewares/auth.middleware');
 
 
 const app = express();
@@ -18,16 +20,24 @@ app.use(express.json());
 // Documentación de la API
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-// Rutas del sistema
-app.use('/api/tickets', ticketRoutes);
-app.use('/api/catalogos', catalogoRoutes);
-app.use('/api/agentes', agenteRoutes);
+// Rutas públicas: login, renovar sesión y cerrar sesión
+app.use('/api/auth', authRoutes);
+
+// Rutas protegidas: exigen el access token (Authorization: Bearer <token>)
+app.use('/api/tickets', verificarToken, ticketRoutes);
+app.use('/api/catalogos', verificarToken, catalogoRoutes);
+app.use('/api/agentes', verificarToken, agenteRoutes);
 
 app.get('/', (req, res) => {
   res.json({ message: 'API de Mesa de Ayuda lista', docs: '/api-docs' });
 });
 
 async function start() {
+  if (!process.env.JWT_SECRET) {
+    console.error('Falta JWT_SECRET en el archivo .env (necesario para el login).');
+    process.exit(1);
+  }
+
   try {
     await runMigrations();
     app.listen(PORT, () => {

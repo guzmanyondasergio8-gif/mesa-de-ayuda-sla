@@ -38,6 +38,24 @@ async function runMigrations() {
                 ADD COLUMN IF NOT EXISTS fecha_resolucion TIMESTAMP NULL;
         `);
 
+        // 2.2 Contraseña de los agentes (encriptada con bcrypt) para el login
+        await pool.query(`
+            ALTER TABLE agentes
+                ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255) NULL;
+        `);
+
+        // 2.3 Refresh tokens emitidos (se guarda solo el hash, nunca el token)
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS refresh_tokens (
+                id SERIAL PRIMARY KEY,
+                agente_id INT NOT NULL REFERENCES agentes(id) ON DELETE CASCADE,
+                token_hash VARCHAR(64) UNIQUE NOT NULL,
+                expira_en TIMESTAMP NOT NULL,
+                revocado BOOLEAN DEFAULT FALSE,
+                fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
         // 3. Tabla para el historial de escalados
         await pool.query(`
             CREATE TABLE IF NOT EXISTS historial_escalados (

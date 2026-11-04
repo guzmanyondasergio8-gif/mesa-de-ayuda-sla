@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getAgentes, getAgenteById, createAgente } = require('../controllers/agente.controller');
+const { permitirRoles } = require('../middlewares/auth.middleware');
 
 /**
  * @openapi
@@ -38,7 +39,7 @@ const { getAgentes, getAgenteById, createAgente } = require('../controllers/agen
  *               items:
  *                 $ref: '#/components/schemas/Agente'
  *   post:
- *     summary: Crear un agente de soporte
+ *     summary: Crear un agente de soporte (solo Administrador)
  *     requestBody:
  *       required: true
  *       content:
@@ -48,6 +49,7 @@ const { getAgentes, getAgenteById, createAgente } = require('../controllers/agen
  *             required:
  *               - nombre
  *               - correo
+ *               - password
  *             properties:
  *               nombre:
  *                 type: string
@@ -59,16 +61,19 @@ const { getAgentes, getAgenteById, createAgente } = require('../controllers/agen
  *                 type: string
  *                 enum: [Agente, Administrador]
  *                 example: Agente
+ *               password:
+ *                 type: string
+ *                 example: Clave123
  *     responses:
  *       201:
  *         description: Agente creado.
  *       400:
- *         description: Datos faltantes, correo inválido o rol no válido.
+ *         description: Datos faltantes, contraseña corta, correo inválido o rol no válido.
  *       409:
  *         description: Ya existe un agente con ese correo.
  */
 router.get('/', getAgentes);
-router.post('/', createAgente);
+router.post('/', permitirRoles('Administrador'), createAgente);
 
 /**
  * @openapi
