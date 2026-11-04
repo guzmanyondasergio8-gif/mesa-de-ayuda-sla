@@ -6,21 +6,29 @@
 // Las funciones devuelven exactamente lo mismo en los dos modos,
 // así que las vistas no cambian al pasar de uno a otro.
 // Si algo falla, lanzan un Error cuyo .message es el mensaje que devuelve la API.
-
+ 
 import ticketsMock from '@/data/mock/tickets.json'
 import agentesMock from '@/data/mock/agentes.json'
 import catalogosMock from '@/data/mock/catalogos.json'
-
+import { useAuthStore } from '@/store/auth'
+ 
 const USAR_MOCK = false
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
-
+ 
 // ---------------------------------------------------------------------------
 // Modo API real
 // ---------------------------------------------------------------------------
+// Hace la petición enviando el access_token en el header Authorization
 async function peticion(ruta, opciones = {}) {
+  const auth = useAuthStore()
+  const { headers, ...resto } = opciones
   const res = await fetch(`${API_URL}${ruta}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...opciones
+    ...resto,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(auth.accessToken ? { Authorization: `Bearer ${auth.accessToken}` } : {}),
+      ...headers
+    }
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
@@ -28,33 +36,60 @@ async function peticion(ruta, opciones = {}) {
   }
   return data
 }
-
+ 
+// ---------------------------------------------------------------------------
+// Rutas públicas de autenticación (siempre van a la API real, sin token)
+// ---------------------------------------------------------------------------
+async function peticionPublica(ruta, cuerpo, mensajePorDefecto) {
+  const res = await fetch(`${API_URL}${ruta}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cuerpo)
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error(data.error || mensajePorDefecto)
+  }
+  return data
+}
+ 
+// Devuelve { access_token, refresh_token, token_type, expires_in, agente }
+export function login(correo, password) {
+  return peticionPublica('/auth/login', { correo, password }, 'No se pudo iniciar sesión.')
+}
+ 
+// Cierra la sesión en el servidor (invalida el refresh_token)
+export function logout(refreshToken) {
+  return peticionPublica('/auth/logout', { refresh_token: refreshToken }, 'No se pudo cerrar la sesión.')
+}
+ 
+ 
 // ---------------------------------------------------------------------------
 // Modo mock (simula el backend en memoria; se reinicia al recargar la página)
 // ---------------------------------------------------------------------------
 let ticketsMemoria = structuredClone(ticketsMock)
 const copia = (dato) => structuredClone(dato)
 const esperar = (ms = 300) => new Promise((r) => setTimeout(r, ms)) // simula la demora de red
-
+ 
 function minutosSla(prioridad) {
   return catalogosMock.prioridades.find((p) => p.nombre === prioridad)?.minutos_sla
 }
-
+ 
 function normalizar(texto) {
   return String(texto).normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase()
 }
-
+ 
 // ---------------------------------------------------------------------------
 // Funciones que usan las vistas
 // ---------------------------------------------------------------------------
-
+ 
 // Lista de tickets (cada uno trae estado_sla y minutos_restantes ya calculados)
 export async function obtenerTickets() {
   if (!USAR_MOCK) return peticion('/tickets')
   await esperar()
   return copia(ticketsMemoria)
 }
-
+ 
 // Un ticket por id
 export async function obtenerTicket(id) {
   if (!USAR_MOCK) return peticion(`/tickets/${id}`)
@@ -63,7 +98,7 @@ export async function obtenerTicket(id) {
   if (!ticket) throw new Error('Ticket no encontrado')
   return copia(ticket)
 }
-
+ 
 // Crear ticket. datos = { titulo, descripcion, prioridad, agente_id }
 // Devuelve { mensaje, ticket }
 export async function crearTicket(datos) {
@@ -71,7 +106,7 @@ export async function crearTicket(datos) {
     return peticion('/tickets', { method: 'POST', body: JSON.stringify(datos) })
   }
   await esperar()
-
+ 
   const { titulo, descripcion, prioridad, agente_id } = datos
   if (!titulo || !descripcion || !prioridad) {
     throw new Error('Título, descripción y prioridad son obligatorios.')
@@ -85,7 +120,7 @@ export async function crearTicket(datos) {
   if (agente_id && !agentesMock.some((a) => a.id === Number(agente_id))) {
     throw new Error('El agente indicado no existe.')
   }
-
+ 
   const ahora = new Date().toISOString()
   const limite = minutosSla(prioridadValida)
   const ticket = {
@@ -109,7 +144,7 @@ export async function crearTicket(datos) {
   ticketsMemoria.unshift(ticket)
   return { mensaje: 'Ticket creado con éxito', ticket: copia(ticket) }
 }
-
+ 
 // Cambiar estado: "En Espera" pausa, "En Progreso"/"Abierto" reanuda, "Resuelto"/"Cerrado" finaliza
 // Devuelve { mensaje, ticket }
 export async function actualizarEstado(id, estado) {
@@ -117,14 +152,14 @@ export async function actualizarEstado(id, estado) {
     return peticion(`/tickets/${id}`, { method: 'PUT', body: JSON.stringify({ estado }) })
   }
   await esperar()
-
+ 
   const estadoValido = catalogosMock.estados.find((e) => normalizar(e) === normalizar(estado))
   if (!estadoValido) {
     throw new Error(`Estado no válido. Valores permitidos: ${catalogosMock.estados.join(', ')}.`)
   }
   const ticket = ticketsMemoria.find((t) => t.id === Number(id))
   if (!ticket) throw new Error('Ticket no encontrado')
-
+ 
   const ahora = new Date().toISOString()
   const esFinal = ['Resuelto', 'Cerrado'].includes(estadoValido)
   ticket.estado = estadoValido
@@ -134,17 +169,18 @@ export async function actualizarEstado(id, estado) {
   ticket.fecha_actualizacion = ahora
   return { mensaje: 'Estado del ticket actualizado', ticket: copia(ticket) }
 }
-
+ 
 // Lista de agentes [{ id, nombre, correo, rol }]
 export async function obtenerAgentes() {
   if (!USAR_MOCK) return peticion('/agentes')
   await esperar()
   return copia(agentesMock)
 }
-
+ 
 // Catálogos { prioridades: [{ nombre, minutos_sla }], estados: [...], estados_sla: [...] }
 export async function obtenerCatalogos() {
   if (!USAR_MOCK) return peticion('/catalogos')
   await esperar()
   return copia(catalogosMock)
 }
+ 

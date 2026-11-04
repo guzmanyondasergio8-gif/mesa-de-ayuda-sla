@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import DashboardView from '@/views/DashboardView.vue'
 import NuevoTicketView from '@/views/NuevoTicketView.vue'
+import LoginView from '@/views/LoginView.vue'
 
 const routes = [
   {
@@ -12,6 +13,11 @@ const routes = [
     path: '/tickets/nuevo',
     name: 'nuevo-ticket',
     component: NuevoTicketView
+  },
+  {
+    path: '/login',
+    name: 'login',
+    component: LoginView
   }
 ]
 
