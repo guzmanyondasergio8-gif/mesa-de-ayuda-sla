@@ -3,6 +3,7 @@
     <form class="login-card" @submit.prevent="enviar">
       <h1>Iniciar sesión</h1>
       <p class="subtitulo">Mesa de ayuda · Dashboard de SLAs</p>
+      <p v-if="route.query.expirada" class="mensaje-aviso">Tu sesión expiró. Inicia sesión de nuevo.</p>
 
       <label>
         Correo
@@ -25,10 +26,11 @@
 
 <script setup>
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 
 const correo = ref('')
@@ -115,6 +117,15 @@ button {
 button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.mensaje-aviso {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border-radius: 6px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.9rem;
 }
 
 .mensaje-error {

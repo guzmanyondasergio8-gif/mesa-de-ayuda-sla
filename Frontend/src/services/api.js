@@ -1,186 +1,100 @@
 // Todas las llamadas al Backend pasan por este archivo.
+// Si algo falla, las funciones lanzan un Error cuyo .message es el mensaje de la API.
 //
-// USAR_MOCK = true  -> usa los datos de prueba de src/data/mock (no necesita backend ni base de datos)
-// USAR_MOCK = false -> usa la API real (necesita el backend corriendo con PostgreSQL)
-//
-// Las funciones devuelven exactamente lo mismo en los dos modos,
-// así que las vistas no cambian al pasar de uno a otro.
-// Si algo falla, lanzan un Error cuyo .message es el mensaje que devuelve la API.
- 
-import ticketsMock from '@/data/mock/tickets.json'
-import agentesMock from '@/data/mock/agentes.json'
-import catalogosMock from '@/data/mock/catalogos.json'
+// Sesión (doble token):
+//  - El access token vive EN MEMORIA (store de Pinia) y se envía en cada petición.
+//  - El refresh token vive en una cookie HttpOnly que pone el Backend; este código
+//    nunca lo ve. Por eso las rutas /auth/* usan credentials: 'include'.
 import { useAuthStore } from '@/store/auth'
- 
-const USAR_MOCK = false
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
- 
+
+export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000'
+
+async function leerRespuesta(res) {
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const error = new Error(data.error || `Error ${res.status} en la petición`)
+    error.status = res.status
+    error.codigo = data.codigo
+    throw error
+  }
+  return data
+}
+
 // ---------------------------------------------------------------------------
-// Modo API real
+// Autenticación (rutas públicas; la cookie del refresh token viaja sola)
 // ---------------------------------------------------------------------------
-// Hace la petición enviando el access_token en el header Authorization
-async function peticion(ruta, opciones = {}) {
+function peticionAuth(ruta, cuerpo) {
+  return fetch(`${API_URL}/api/auth${ruta}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: cuerpo ? JSON.stringify(cuerpo) : undefined
+  }).then(leerRespuesta)
+}
+
+// Devuelve { access_token, token_type, expires_in, agente } y deja la cookie puesta
+export const login = (correo, password) => peticionAuth('/login', { correo, password })
+
+// Usa la cookie para obtener un access token nuevo (misma respuesta que el login)
+export const refrescar = () => peticionAuth('/refresh')
+
+// Borra el refresh token en el servidor y la cookie
+export const logout = () => peticionAuth('/logout')
+
+// ---------------------------------------------------------------------------
+// Rutas protegidas: envían el access token y lo renuevan si venció
+// ---------------------------------------------------------------------------
+async function peticion(ruta, opciones = {}, reintentar = true) {
   const auth = useAuthStore()
-  const { headers, ...resto } = opciones
-  const res = await fetch(`${API_URL}${ruta}`, {
-    ...resto,
+  const res = await fetch(`${API_URL}/api${ruta}`, {
+    ...opciones,
     headers: {
       'Content-Type': 'application/json',
-      ...(auth.accessToken ? { Authorization: `Bearer ${auth.accessToken}` } : {}),
-      ...headers
+      ...(auth.accessToken ? { Authorization: `Bearer ${auth.accessToken}` } : {})
     }
   })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    throw new Error(data.error || `Error ${res.status} en la petición`)
+
+  if (res.status === 401) {
+    const data = await res.clone().json().catch(() => ({}))
+    // Token vencido: se renueva UNA vez (el store evita refresh simultáneos) y se repite
+    if (data.codigo === 'TOKEN_EXPIRADO' && reintentar) {
+      const renovado = await auth.renovar()
+      if (renovado) return peticion(ruta, opciones, false)
+    }
+    auth.sesionExpirada()
   }
-  return data
+
+  return leerRespuesta(res)
 }
- 
-// ---------------------------------------------------------------------------
-// Rutas públicas de autenticación (siempre van a la API real, sin token)
-// ---------------------------------------------------------------------------
-async function peticionPublica(ruta, cuerpo, mensajePorDefecto) {
-  const res = await fetch(`${API_URL}${ruta}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(cuerpo)
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    throw new Error(data.error || mensajePorDefecto)
-  }
-  return data
-}
- 
-// Devuelve { access_token, refresh_token, token_type, expires_in, agente }
-export function login(correo, password) {
-  return peticionPublica('/auth/login', { correo, password }, 'No se pudo iniciar sesión.')
-}
- 
-// Cierra la sesión en el servidor (invalida el refresh_token)
-export function logout(refreshToken) {
-  return peticionPublica('/auth/logout', { refresh_token: refreshToken }, 'No se pudo cerrar la sesión.')
-}
- 
- 
-// ---------------------------------------------------------------------------
-// Modo mock (simula el backend en memoria; se reinicia al recargar la página)
-// ---------------------------------------------------------------------------
-let ticketsMemoria = structuredClone(ticketsMock)
-const copia = (dato) => structuredClone(dato)
-const esperar = (ms = 300) => new Promise((r) => setTimeout(r, ms)) // simula la demora de red
- 
-function minutosSla(prioridad) {
-  return catalogosMock.prioridades.find((p) => p.nombre === prioridad)?.minutos_sla
-}
- 
-function normalizar(texto) {
-  return String(texto).normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase()
-}
- 
-// ---------------------------------------------------------------------------
-// Funciones que usan las vistas
-// ---------------------------------------------------------------------------
- 
-// Lista de tickets (cada uno trae estado_sla y minutos_restantes ya calculados)
-export async function obtenerTickets() {
-  if (!USAR_MOCK) return peticion('/tickets')
-  await esperar()
-  return copia(ticketsMemoria)
-}
- 
-// Un ticket por id
-export async function obtenerTicket(id) {
-  if (!USAR_MOCK) return peticion(`/tickets/${id}`)
-  await esperar()
-  const ticket = ticketsMemoria.find((t) => t.id === Number(id))
-  if (!ticket) throw new Error('Ticket no encontrado')
-  return copia(ticket)
-}
- 
-// Crear ticket. datos = { titulo, descripcion, prioridad, agente_id }
-// Devuelve { mensaje, ticket }
-export async function crearTicket(datos) {
-  if (!USAR_MOCK) {
-    return peticion('/tickets', { method: 'POST', body: JSON.stringify(datos) })
-  }
-  await esperar()
- 
-  const { titulo, descripcion, prioridad, agente_id } = datos
-  if (!titulo || !descripcion || !prioridad) {
-    throw new Error('Título, descripción y prioridad son obligatorios.')
-  }
-  const prioridadValida = catalogosMock.prioridades.find(
-    (p) => normalizar(p.nombre) === normalizar(prioridad)
-  )?.nombre
-  if (!prioridadValida) {
-    throw new Error('Prioridad no válida. Valores permitidos: Baja, Media, Alta, Crítica.')
-  }
-  if (agente_id && !agentesMock.some((a) => a.id === Number(agente_id))) {
-    throw new Error('El agente indicado no existe.')
-  }
- 
-  const ahora = new Date().toISOString()
-  const limite = minutosSla(prioridadValida)
-  const ticket = {
-    id: Math.max(0, ...ticketsMemoria.map((t) => t.id)) + 1,
-    titulo,
-    descripcion,
-    prioridad: prioridadValida,
-    estado: 'Abierto',
-    agente_id: agente_id ? Number(agente_id) : null,
-    tiempo_limite_resolucion: limite,
-    tiempo_transcurrido_minutos: 0,
-    minutos_restantes: limite,
-    estado_sla: 'en_tiempo',
-    en_espera: false,
-    pausado_desde: null,
-    minutos_pausados: 0,
-    fecha_resolucion: null,
-    fecha_creacion: ahora,
-    fecha_actualizacion: ahora
-  }
-  ticketsMemoria.unshift(ticket)
-  return { mensaje: 'Ticket creado con éxito', ticket: copia(ticket) }
-}
- 
-// Cambiar estado: "En Espera" pausa, "En Progreso"/"Abierto" reanuda, "Resuelto"/"Cerrado" finaliza
-// Devuelve { mensaje, ticket }
-export async function actualizarEstado(id, estado) {
-  if (!USAR_MOCK) {
-    return peticion(`/tickets/${id}`, { method: 'PUT', body: JSON.stringify({ estado }) })
-  }
-  await esperar()
- 
-  const estadoValido = catalogosMock.estados.find((e) => normalizar(e) === normalizar(estado))
-  if (!estadoValido) {
-    throw new Error(`Estado no válido. Valores permitidos: ${catalogosMock.estados.join(', ')}.`)
-  }
-  const ticket = ticketsMemoria.find((t) => t.id === Number(id))
-  if (!ticket) throw new Error('Ticket no encontrado')
- 
-  const ahora = new Date().toISOString()
-  const esFinal = ['Resuelto', 'Cerrado'].includes(estadoValido)
-  ticket.estado = estadoValido
-  ticket.en_espera = !esFinal && estadoValido === 'En Espera'
-  ticket.pausado_desde = ticket.en_espera ? (ticket.pausado_desde || ahora) : null
-  ticket.fecha_resolucion = esFinal ? (ticket.fecha_resolucion || ahora) : null
-  ticket.fecha_actualizacion = ahora
-  return { mensaje: 'Estado del ticket actualizado', ticket: copia(ticket) }
-}
- 
-// Lista de agentes [{ id, nombre, correo, rol }]
-export async function obtenerAgentes() {
-  if (!USAR_MOCK) return peticion('/agentes')
-  await esperar()
-  return copia(agentesMock)
-}
- 
-// Catálogos { prioridades: [{ nombre, minutos_sla }], estados: [...], estados_sla: [...] }
-export async function obtenerCatalogos() {
-  if (!USAR_MOCK) return peticion('/catalogos')
-  await esperar()
-  return copia(catalogosMock)
-}
- 
+
+// Lista de tickets (cada uno trae estado_sla, minutos_restantes, agente_nombre y escalado)
+export const obtenerTickets = () => peticion('/tickets')
+
+export const obtenerTicket = (id) => peticion(`/tickets/${id}`)
+
+// Historial de escalados de un ticket
+export const obtenerHistorial = (id) => peticion(`/tickets/${id}/historial`)
+
+// datos = { titulo, descripcion, prioridad, agente_id }  ->  { mensaje, ticket }
+export const crearTicket = (datos) =>
+  peticion('/tickets', { method: 'POST', body: JSON.stringify(datos) })
+
+// "En Espera" pausa, "En Progreso"/"Abierto" reanuda, "Resuelto"/"Cerrado" finaliza
+export const actualizarEstado = (id, estado) =>
+  peticion(`/tickets/${id}`, { method: 'PUT', body: JSON.stringify({ estado }) })
+
+// Solo Administrador: borra un ticket y su historial
+export const eliminarTicket = (id) => peticion(`/tickets/${id}`, { method: 'DELETE' })
+
+// Solo Administrador: borra todos los tickets
+export const eliminarTodosLosTickets = () => peticion('/tickets', { method: 'DELETE' })
+
+// [{ id, nombre, correo, rol }]
+export const obtenerAgentes = () => peticion('/agentes')
+
+// { nombre, correo, password, rol }  ->  { mensaje, agente }   (solo Administrador)
+export const crearAgente = (datos) =>
+  peticion('/agentes', { method: 'POST', body: JSON.stringify(datos) })
+
+// { prioridades: [{ nombre, minutos_sla }], estados: [...], estados_sla: [...] }
+export const obtenerCatalogos = () => peticion('/catalogos')

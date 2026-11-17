@@ -1,26 +1,19 @@
 import { defineStore } from 'pinia'
-import { login } from '@/services/api'
+import { login, refrescar, logout } from '@/services/api'
 
-const CLAVE = 'sesion'
-
-function cargarSesion() {
-  try {
-    return JSON.parse(localStorage.getItem(CLAVE)) || {}
-  } catch {
-    return {}
-  }
-}
+// Promesas compartidas: si varias partes de la app piden lo mismo a la vez,
+// todas esperan la MISMA petición (el backend toma dos refresh simultáneos con
+// el mismo token como un robo y cierra la sesión).
+let renovacionEnCurso = null
+let restauracion = null
 
 export const useAuthStore = defineStore('auth', {
-  // Al crear el store se carga lo que haya en localStorage
-  state: () => {
-    const guardado = cargarSesion()
-    return {
-      agente: guardado.agente || null,
-      accessToken: guardado.accessToken || null,
-      refreshToken: guardado.refreshToken || null
-    }
-  },
+  // El access token vive solo en memoria: al recargar la página se pierde y se
+  // recupera con la cookie HttpOnly del refresh token (restaurarSesion).
+  state: () => ({
+    agente: null,
+    accessToken: null
+  }),
 
   getters: {
     estaAutenticado: (state) => !!state.accessToken,
@@ -28,31 +21,63 @@ export const useAuthStore = defineStore('auth', {
   },
 
   actions: {
-    // Guarda la respuesta de login/refresh en el estado y en localStorage
     guardarSesion(data) {
-      this.agente = data.agente || this.agente
+      this.agente = data.agente
       this.accessToken = data.access_token
-      this.refreshToken = data.refresh_token
-      localStorage.setItem(
-        CLAVE,
-        JSON.stringify({
-          agente: this.agente,
-          accessToken: this.accessToken,
-          refreshToken: this.refreshToken
-        })
-      )
+    },
+
+    limpiar() {
+      this.agente = null
+      this.accessToken = null
     },
 
     async iniciarSesion(correo, password) {
-      const data = await login(correo, password)
-      this.guardarSesion(data)
+      this.guardarSesion(await login(correo, password))
     },
 
-    cerrarSesion() {
-      this.agente = null
-      this.accessToken = null
-      this.refreshToken = null
-      localStorage.removeItem(CLAVE)
+    // Pide un access token nuevo con la cookie. Devuelve true si lo logró.
+    renovar() {
+      if (!renovacionEnCurso) {
+        renovacionEnCurso = refrescar()
+          .then((data) => {
+            this.guardarSesion(data)
+            return true
+          })
+          .catch(() => {
+            this.limpiar()
+            return false
+          })
+          .finally(() => {
+            renovacionEnCurso = null
+          })
+      }
+      return renovacionEnCurso
+    },
+
+    // Al abrir o recargar la página: si la cookie sigue vigente, recupera la sesión
+    // sin pedir la contraseña. Solo se intenta una vez por carga de la página.
+    restaurarSesion() {
+      if (!restauracion) {
+        restauracion = this.estaAutenticado ? Promise.resolve(true) : this.renovar()
+      }
+      return restauracion
+    },
+
+    async cerrarSesion() {
+      try {
+        await logout()
+      } catch (e) {
+        // Si falla (por ejemplo, sin conexión), igual se cierra la sesión aquí
+      }
+      this.limpiar()
+    },
+
+    // La API dijo que la sesión ya no sirve: limpiar y volver al login
+    sesionExpirada() {
+      this.limpiar()
+      if (window.location.pathname !== '/login') {
+        window.location.assign('/login?expirada=1')
+      }
     }
   }
 })
