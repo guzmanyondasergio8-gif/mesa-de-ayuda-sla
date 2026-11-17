@@ -13,4 +13,23 @@ pool.on('error', (err) => {
   console.error('Error en el pool de PostgreSQL:', err);
 });
 
+// Ejecuta varias consultas como una sola transacción.
+// Si la función lanza un error, se hace ROLLBACK y no queda nada a medias.
+// Uso: await conTransaccion(async (client) => { await client.query(...) })
+async function conTransaccion(fn) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const resultado = await fn(client);
+    await client.query('COMMIT');
+    return resultado;
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = pool;
+module.exports.conTransaccion = conTransaccion;

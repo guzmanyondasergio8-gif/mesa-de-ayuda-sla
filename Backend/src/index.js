@@ -1,36 +1,14 @@
+// Punto de entrada: corre las migraciones y enciende la API, Socket.io y el monitor del SLA.
+// La configuración de Express (rutas, middlewares) está en app.js.
 require('dotenv').config();
-const express = require('express');
-const cors = require('cors'); // <-- 1. Importar cors
-const swaggerUi = require('swagger-ui-express');
-const swaggerSpec = require('./config/swagger');
+const http = require('http');
+const app = require('./app');
 const runMigrations = require('./config/migrate');
-const ticketRoutes = require('./routes/ticket.routes');
-const catalogoRoutes = require('./routes/catalogo.routes');
-const agenteRoutes = require('./routes/agente.routes');
-const authRoutes = require('./routes/auth.routes');
-const { verificarToken } = require('./middlewares/auth.middleware');
+const { ORIGEN_FRONTEND } = require('./config/cors');
+const { iniciarSockets } = require('./sockets');
+const monitorSla = require('./services/monitorSla.service');
 
-
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.use(cors()); // <-- 2. Permitir peticiones desde el Frontend
-app.use(express.json());
-
-// Documentación de la API
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-
-// Rutas públicas: login, renovar sesión y cerrar sesión
-app.use('/api/auth', authRoutes);
-
-// Rutas protegidas: exigen el access token (Authorization: Bearer <token>)
-app.use('/api/tickets', verificarToken, ticketRoutes);
-app.use('/api/catalogos', verificarToken, catalogoRoutes);
-app.use('/api/agentes', verificarToken, agenteRoutes);
-
-app.get('/', (req, res) => {
-  res.json({ message: 'API de Mesa de Ayuda lista', docs: '/api-docs' });
-});
+const PORT = process.env.PORT || 4000;
 
 async function start() {
   if (!process.env.JWT_SECRET) {
@@ -40,12 +18,19 @@ async function start() {
 
   try {
     await runMigrations();
-    app.listen(PORT, () => {
+
+    // Express y Socket.io comparten el mismo servidor y puerto
+    const servidor = http.createServer(app);
+    iniciarSockets(servidor);
+
+    servidor.listen(PORT, () => {
       console.log(`Servidor en http://localhost:${PORT}`);
       console.log(`Swagger en  http://localhost:${PORT}/api-docs`);
+      console.log(`Frontend permitido: ${ORIGEN_FRONTEND}`);
+      monitorSla.iniciar();
     });
   } catch (error) {
-    console.error("Error al iniciar:", error.message || error);
+    console.error('Error al iniciar:', error.message || error);
     process.exit(1);
   }
 }

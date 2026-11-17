@@ -3,9 +3,13 @@ const router = express.Router();
 const {
   getTickets,
   getTicketById,
+  getHistorial,
   createTicket,
+  deleteTicket,
+  deleteTodos,
   updateTicketStatus
 } = require('../controllers/ticket.controller');
+const { permitirRoles } = require('../middlewares/auth.middleware');
 
 /**
  * @openapi
@@ -32,6 +36,17 @@ const {
  *         agente_id:
  *           type: integer
  *           nullable: true
+ *         agente_nombre:
+ *           type: string
+ *           nullable: true
+ *           description: Nombre del agente asignado
+ *           example: María López
+ *         minutos_desde_creacion:
+ *           type: integer
+ *           description: Minutos desde que se creó el ticket (incluye pausas)
+ *         escalado:
+ *           type: boolean
+ *           description: true si el ticket venció y quedó registrado en el historial de escalados
  *         tiempo_limite_resolucion:
  *           type: integer
  *           description: Minutos totales del SLA según la prioridad
@@ -119,6 +134,20 @@ router.post('/', createTicket);
 
 /**
  * @openapi
+ * /api/tickets:
+ *   delete:
+ *     summary: Eliminar TODOS los tickets (solo Administrador)
+ *     description: Borra los tickets y su historial de escalados; la numeración vuelve a empezar en 1. Avisa por socket con tickets:limpiados.
+ *     responses:
+ *       200:
+ *         description: Tickets eliminados.
+ *       403:
+ *         description: Requiere rol Administrador.
+ */
+router.delete('/', permitirRoles('Administrador'), deleteTodos);
+
+/**
+ * @openapi
  * /api/tickets/{id}:
  *   get:
  *     summary: Obtener un ticket por id
@@ -143,6 +172,8 @@ router.post('/', createTicket);
  *       - Estado "En Espera" o en_espera true: pausa el reloj del SLA.
  *       - Volver a "Abierto" o "En Progreso": reanuda el reloj (el tiempo pausado no cuenta).
  *       - "Resuelto" o "Cerrado": detiene el reloj definitivamente.
+ *       - Un Agente solo puede cambiar tickets asignados a él o sin asignar (si no, 403).
+ *         El Administrador puede cambiar cualquiera.
  *     parameters:
  *       - in: path
  *         name: id
@@ -167,10 +198,58 @@ router.post('/', createTicket);
  *         description: Ticket actualizado exitosamente.
  *       400:
  *         description: Estado no válido o datos incorrectos.
+ *       403:
+ *         description: El ticket está asignado a otro agente.
  *       404:
  *         description: Ticket no encontrado.
  */
 router.get('/:id', getTicketById);
+
+/**
+ * @openapi
+ * /api/tickets/{id}/historial:
+ *   get:
+ *     summary: Historial de escalados del ticket
+ *     description: Cuando un ticket vence, el monitor del SLA lo registra aquí automáticamente.
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Lista de escalados (vacía si nunca venció).
+ *         content:
+ *           application/json:
+ *             example:
+ *               - { id: 1, ticket_id: 4, motivo: "SLA vencido: prioridad Crítica, límite de 30 min", fecha_evento: "2026-11-11T15:30:00.000Z" }
+ *       404:
+ *         description: Ticket no encontrado.
+ */
+router.get('/:id/historial', getHistorial);
 router.put('/:id', updateTicketStatus);
+
+/**
+ * @openapi
+ * /api/tickets/{id}:
+ *   delete:
+ *     summary: Eliminar un ticket (solo Administrador)
+ *     description: También borra su historial de escalados. Avisa por socket con ticket:eliminado.
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Ticket eliminado.
+ *       403:
+ *         description: Requiere rol Administrador.
+ *       404:
+ *         description: Ticket no encontrado.
+ */
+router.delete('/:id', permitirRoles('Administrador'), deleteTicket);
 
 module.exports = router;

@@ -66,6 +66,12 @@ async function runMigrations() {
             );
         `);
 
+        // 4. Índices para las búsquedas más frecuentes
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_historial_ticket ON historial_escalados(ticket_id);
+            CREATE INDEX IF NOT EXISTS idx_refresh_tokens_agente ON refresh_tokens(agente_id);
+        `);
+
         console.log("Migraciones de Mesa de Ayuda y SLAs completadas con éxito.");
     } catch (error) {
         console.error("Error al ejecutar migraciones:", error.message || error);

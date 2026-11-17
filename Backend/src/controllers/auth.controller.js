@@ -1,75 +1,60 @@
-const bcrypt = require('bcryptjs');
-const pool = require('../config/db');
-const { crearSesion, renovarSesion, revocarRefreshToken } = require('../services/auth.service');
+// Controlador de autenticación.
+// El access token va en el JSON (el Frontend lo guarda en memoria) y el
+// refresh token en una cookie HttpOnly que el JavaScript de la página no puede leer.
+const authService = require('../services/auth.service');
+const { conManejo } = require('../utils/errores');
 
-// Mismo mensaje para correo inexistente o contraseña incorrecta,
-// así no se revela qué correos están registrados
-const ERROR_CREDENCIALES = 'Correo o contraseña incorrectos.';
+const COOKIE_REFRESH = 'refresh_token';
+
+const opcionesCookie = {
+  httpOnly: true,                                   // invisible para JavaScript (protege de XSS)
+  sameSite: 'strict',                               // no se envía desde otros sitios (protege de CSRF)
+  secure: process.env.NODE_ENV === 'production',    // en producción, solo por HTTPS
+  path: '/api/auth'                                 // solo viaja a las rutas de autenticación
+};
+
+// Responde la sesión: refresh token en la cookie, el resto en el JSON
+function enviarSesion(res, sesion) {
+  res.cookie(COOKIE_REFRESH, sesion.refreshToken, {
+    ...opcionesCookie,
+    maxAge: authService.REFRESH_TOKEN_DIAS * 24 * 60 * 60 * 1000
+  });
+  res.json({
+    access_token: sesion.accessToken,
+    token_type: 'Bearer',
+    expires_in: sesion.expiresIn,
+    agente: sesion.agente
+  });
+}
 
 // POST /api/auth/login
-const login = async (req, res) => {
-  const { correo, password } = req.body;
+const login = conManejo(async (req, res) => {
+  const sesion = await authService.login(req.body.correo, req.body.password);
+  enviarSesion(res, sesion);
+});
 
-  if (!correo || !password) {
-    return res.status(400).json({ error: 'Correo y contraseña son obligatorios.' });
-  }
-
+// POST /api/auth/refresh — usa la cookie para entregar un access token nuevo
+const refresh = conManejo(async (req, res) => {
   try {
-    const result = await pool.query(
-      'SELECT id, nombre, correo, rol, password_hash FROM agentes WHERE correo = $1',
-      [String(correo).trim().toLowerCase()]
-    );
-    const agente = result.rows[0];
-
-    // Agentes creados antes del login no tienen contraseña y no pueden entrar
-    if (!agente || !agente.password_hash) {
-      return res.status(401).json({ error: ERROR_CREDENCIALES });
-    }
-
-    const passwordCorrecta = await bcrypt.compare(String(password), agente.password_hash);
-    if (!passwordCorrecta) {
-      return res.status(401).json({ error: ERROR_CREDENCIALES });
-    }
-
-    res.json(await crearSesion(agente));
+    const sesion = await authService.renovarSesion(req.cookies[COOKIE_REFRESH]);
+    enviarSesion(res, sesion);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    // Si la sesión ya no sirve, se borra la cookie para no seguir intentando
+    res.clearCookie(COOKIE_REFRESH, opcionesCookie);
+    throw error;
   }
-};
+});
 
-// POST /api/auth/refresh — cambia el refresh token por una sesión nueva
-const refresh = async (req, res) => {
-  try {
-    res.json(await renovarSesion(req.body.refresh_token));
-  } catch (error) {
-    res.status(error.status || 500).json({ error: error.message });
-  }
-};
-
-// POST /api/auth/logout — revoca el refresh token para que no se pueda volver a usar
-const logout = async (req, res) => {
-  try {
-    await revocarRefreshToken(req.body.refresh_token);
-    res.json({ mensaje: 'Sesión cerrada' });
-  } catch (error) {
-    res.status(error.status || 500).json({ error: error.message });
-  }
-};
+// POST /api/auth/logout — elimina el refresh token y borra la cookie
+const logout = conManejo(async (req, res) => {
+  await authService.cerrarSesion(req.cookies[COOKIE_REFRESH]);
+  res.clearCookie(COOKIE_REFRESH, opcionesCookie);
+  res.json({ mensaje: 'Sesión cerrada' });
+});
 
 // GET /api/auth/perfil — datos del agente dueño del token (ruta protegida)
-const perfil = async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      'SELECT id, nombre, correo, rol FROM agentes WHERE id = $1',
-      [req.usuario.id]
-    );
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'Agente no encontrado' });
-    }
-    res.json(rows[0]);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
+const perfil = conManejo(async (req, res) => {
+  res.json(await authService.perfil(req.usuario.id));
+});
 
 module.exports = { login, refresh, logout, perfil };
